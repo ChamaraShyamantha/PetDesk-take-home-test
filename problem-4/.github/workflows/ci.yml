@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: demo-app
+  AWS_ROLE_ARN: arn:aws:iam::699475920001:role/demo-app-github-actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build image
+        run: |
+          echo "IMAGE=${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:$GITHUB_SHA" >> $GITHUB_ENV
+          docker build -t ${{ steps.ecr.outputs.registry }}/$ECR_REPOSITORY:$GITHUB_SHA .
+
+      - name: Scan image
+        uses: anchore/scan-action@v6
+        with:
+          image: ${{ env.IMAGE }}
+          fail-build: true
+          severity-cutoff: critical
+          output-format: table
+
+      - name: Push image
+        run: docker push $IMAGE
+
+  deploy-staging:
+    needs: build
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      image_tag: ${{ github.sha }}

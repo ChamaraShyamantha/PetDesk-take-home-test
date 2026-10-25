@@ -1,0 +1,67 @@
+name: deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, production]
+      image_tag:
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      environment:
+        type: string
+        required: true
+      image_tag:
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: demo-app
+  AWS_ROLE_ARN: arn:aws:iam::699475920001:role/demo-app-github-actions
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    env:
+      NAME: demo-app-${{ inputs.environment }}
+      TAG: ${{ inputs.image_tag }}
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Check image exists
+        run: aws ecr describe-images --repository-name $ECR_REPOSITORY --image-ids imageTag=$TAG
+
+      - name: Register task definition
+        run: |
+          REPO_URI=$(aws ecr describe-repositories --repository-names $ECR_REPOSITORY --query 'repositories[0].repositoryUri' --output text)
+          aws ecs describe-task-definition --task-definition $NAME --query taskDefinition \
+            | jq --arg image "$REPO_URI:$TAG" '.containerDefinitions[0].image = $image | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
+            > task-definition.json
+          ARN=$(aws ecs register-task-definition --cli-input-json file://task-definition.json --query taskDefinition.taskDefinitionArn --output text)
+          echo "TASK_DEF_ARN=$ARN" >> $GITHUB_ENV
+
+      - name: Deploy
+        run: |
+          aws ecs update-service --cluster $NAME --service $NAME --task-definition $TASK_DEF_ARN --query service.serviceName
+          aws ecs wait services-stable --cluster $NAME --services $NAME
+
+      - name: Verify deployment
+        run: |
+          RUNNING=$(aws ecs describe-services --cluster $NAME --services $NAME --query 'services[0].taskDefinition' --output text)
+          if [ "$RUNNING" != "$TASK_DEF_ARN" ]; then
+            echo "Deployment failed. ECS rolled back to $RUNNING"
+            exit 1
+          fi
+          echo "Deployed $TAG to ${{ inputs.environment }}"
