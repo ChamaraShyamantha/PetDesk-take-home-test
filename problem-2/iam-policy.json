@@ -1,0 +1,34 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "ReadDatadogApiKey",
+            "Effect": "Allow",
+            "Action": "ssm:GetParameter",
+            "Resource": "arn:aws:ssm:ap-southeast-1:123456789012:parameter/datadog/api_key"
+        },
+        {
+            "Sid": "DecryptDatadogParameter",
+            "Effect": "Allow",
+            "Action": "kms:Decrypt",
+            "Resource": "arn:aws:kms:ap-southeast-1:123456789012:key/KMS-KEY-ID",
+            "Condition": {
+                "StringEquals": {
+                    "kms:ViaService": "ssm.ap-southeast-1.amazonaws.com",
+                    "kms:EncryptionContext:PARAMETER_ARN": "arn:aws:ssm:ap-southeast-1:123456789012:parameter/datadog/api_key"
+                }
+            }
+        },
+        {
+            "Sid": "PublishBootstrapMetrics",
+            "Effect": "Allow",
+            "Action": "cloudwatch:PutMetricData",
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "cloudwatch:namespace": "Bootstrap"
+                }
+            }
+        }
+    ]
+}
