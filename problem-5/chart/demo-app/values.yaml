@@ -1,0 +1,13 @@
+replicas: 3
+
+image:
+  repository: demo-app
+  tag: "855f8ef"
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
